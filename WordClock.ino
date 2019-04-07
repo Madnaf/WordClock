@@ -10,7 +10,7 @@
 #include <WiFiManager.h>
 #include <WiFiUdp.h>
 #include <EasyNTPClient.h>
-#include <ArduinoOTA.h>
+#include <ESP8266HTTPUpdateServer.h>
 
 #define DEBUG true
 #define LED_PIN D1 //5 //TODO correct Pin please
@@ -19,8 +19,14 @@
 #define LED_TYPE WS2812
 #define COLOR_ORDER GRB
 
+const char* host = "wordclock-ota";
+const char* update_path = "/firmware";
+const char* update_username = "admin";
+const char* update_password = "admin";
+
 CRGB leds[NUM_LEDS];
 ESP8266WebServer server(80);
+ESP8266HTTPUpdateServer httpUpdater;
 WiFiManager wifiManager;
 WiFiUDP ntpUDP;
 EasyNTPClient timeClient(ntpUDP, "europe.pool.ntp.org", 3600); //TODO: Konfigurierbar machen?
@@ -77,45 +83,12 @@ void setup() {
   server.on("/test", handleTest);
   server.on("/test2", handleTest2);
   server.onNotFound(handleNotFound);
-  server.begin();
-  Serial.println("HTTP server started"); 
 
   //Setup OTA
-  ArduinoOTA.setPort(8266);
-  ArduinoOTA.setHostname("WordClock");
-  ArduinoOTA.setPassword("WordClockOTA");
-  ArduinoOTA.onStart([]() {
-    String type;
-    if (ArduinoOTA.getCommand() == U_FLASH) {
-      type = "sketch";
-    } else { // U_SPIFFS
-      type = "filesystem";
-    }
+  httpUpdater.setup(&server, update_path, update_username, update_password);
 
-    // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
-    Serial.println("Start updating " + type);
-  });
-  ArduinoOTA.onEnd([]() {
-    Serial.println("\nEnd");
-  });
-  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
-    Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
-  });
-  ArduinoOTA.onError([](ota_error_t error) {
-    Serial.printf("Error[%u]: ", error);
-    if (error == OTA_AUTH_ERROR) {
-      Serial.println("Auth Failed");
-    } else if (error == OTA_BEGIN_ERROR) {
-      Serial.println("Begin Failed");
-    } else if (error == OTA_CONNECT_ERROR) {
-      Serial.println("Connect Failed");
-    } else if (error == OTA_RECEIVE_ERROR) {
-      Serial.println("Receive Failed");
-    } else if (error == OTA_END_ERROR) {
-      Serial.println("End Failed");
-    }
-  });
-  ArduinoOTA.begin();
+  server.begin();
+  Serial.println("HTTP server started"); 
 
   setupSuccess();
   if (DEBUG)Serial.println("setup done");  
@@ -294,7 +267,7 @@ Handle für die Update Route des Webservers
 */
 void handleUpdate() {
   if (DEBUG)Serial.println("handleUpdate");
-  server.sendHeader("Location", "http://WordClock:8266/");
+  server.sendHeader("Location", update_path);
   server.send(302, "text/plane", "");
   if (DEBUG)Serial.println("handleUpdate");
 }
@@ -420,6 +393,7 @@ void handleRoot() {
     <div class='container'>\
       <div class='jumbotron d-flex align-items-center'>\
         <h1>%s</h1><br />\
+        <br />\
         <h2>Es ist %d Uhr %d</h2>\
       </div>\
       <form action='/color'>\
@@ -454,7 +428,7 @@ void handleRoot() {
     </footer>\
   </body>\
 </html>",
-           "WordClock", h, m, rgbColor, fhc, fssc, ssc
+           "Word Clock", h, m, rgbColor, fhc, fssc, ssc
           );
   server.send(200, "text/html", temp);
   if (DEBUG)Serial.println("handleRoot done");
@@ -486,6 +460,5 @@ void loop() {
   loadTimeAction.check();
   dimmAction.check();
   server.handleClient();
-  ArduinoOTA.handle();
-  delay(500);
+  delay(200);
 }
