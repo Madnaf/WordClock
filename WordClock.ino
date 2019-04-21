@@ -16,7 +16,7 @@
 #define LED_PIN D1 //5 //TODO correct Pin please
 #define LIGHT_SENSOR_PIN 0 //TODO correct Pin please
 #define NUM_LEDS 110
-#define LED_TYPE WS2812
+#define LED_TYPE WS2812B
 #define COLOR_ORDER GRB
 
 const char* host = "wordclock-ota";
@@ -54,8 +54,8 @@ int userMax = 180; //TODO: konfigurierbar über WebGUI?
 /*--------------------------------------------------*/
 void setup() {
   delay(3000); //power up safety delay
-  if (DEBUG)Serial.println("setup");
   Serial.begin(115200);
+  if (DEBUG)Serial.println("setup");
 
   FastLED.addLeds<LED_TYPE, LED_PIN, COLOR_ORDER>(leds, NUM_LEDS);
 
@@ -117,19 +117,19 @@ void dimm() {
   if (DEBUG)Serial.println("dimm");
   //lese Fotodiode
   lightLevel = analogRead(LIGHT_SENSOR_PIN);
-  if (DEBUG)Serial.println("lightlevel " + lightLevel);
-
-  //Passe den Input Range auf einen Output Range an
-  //TODO: Welches ist der Output Range?
-  light = map(lightLevel, muchLight, noLight, ledOff, userMax || ledMax);
-  if (DEBUG)Serial.println("light " + light);
-  //und stelle sicher, dass die Werte nicht ausserhalb der erlaubten sind
-  light = constrain(lightLevel, ledOff, ledMax);
-  if (DEBUG)Serial.println("light " + light);
-
-  //Dann setze den neuen Wert
-  FastLED.setBrightness(light);
-  if (DEBUG)Serial.println("dimm done " + light);
+  if(lightLevel != NULL && lightLevel > 20){
+    //Passe den Input Range auf einen Output Range an
+    //TODO: Welches ist der Output Range?
+    light = map(lightLevel, muchLight, noLight, ledOff, userMax || ledMax);
+    //und stelle sicher, dass die Werte nicht ausserhalb der erlaubten sind
+    light = constrain(lightLevel, ledOff, ledMax);
+    //Dann setze den neuen Wert
+    FastLED.setBrightness(light);
+    if (DEBUG)Serial.println("dimm done " + String(light));
+  } else {
+    FastLED.setBrightness(userMax);
+    if (DEBUG)Serial.println("dimm could not read lightLevel");
+  }
 }
 
 /*--------------------------------------------------
@@ -137,16 +137,16 @@ Setze die Farbe der LEDs
 */
 void setColor() {
   if (DEBUG)Serial.println("setColor");
-  FastLED.setBrightness(ledOff);
+//  FastLED.setBrightness(ledOff);
   //Just for fun - lasse alle LEDs einmal in der neuen Farbe faden
   //Experimentell, keine Ahnung ob das tut :D
-  for (int i = 0; i <= NUM_LEDS; i++) {
-    leds[i] = hexColor;
-    leds[i].fadeLightBy(255);
-    leds[i].fadeToBlackBy(0);
-    delay(200);
-  }
-  FastLED.setBrightness(lightLevel);
+//  for (int i = 0; i <= NUM_LEDS; i++) {
+//    leds[i] = hexColor;
+//    leds[i].fadeLightBy(255);
+//    leds[i].fadeToBlackBy(0);
+//    delay(200);
+//  }
+//  FastLED.setBrightness(light || userMax);
   if (DEBUG)Serial.println("setColor done");
 }
 
@@ -236,6 +236,7 @@ void handleColor() {
   Serial.println(pick);
   saveColor(pick);
   loadColor();
+  loadTime();
   
   server.sendHeader("Location", "/");
   server.send(302, "text/plane", "");
@@ -385,7 +386,7 @@ void handleRoot() {
 
   snprintf(temp, 2048,
 "<html><head>\
- <meta charset='utf-8'/><meta http-equiv='refresh' content='30'/>\
+ <meta charset='utf-8'/><meta http-equiv='refresh' content='60'/>\
  <link rel='stylesheet' href='https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css'>\
  <title>WordClock</title>\
  <script>function conf(path){if(window.confirm('Sure?')){load(path)}}\

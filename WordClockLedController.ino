@@ -381,26 +381,17 @@ void calcLedState(uint8_t h, uint8_t m){
   if (DEBUG)Serial.println("m=" + String(m));
   //Read pattern Pointer
   uint8_t* p_pattern = (uint8_t*) pgm_read_dword(&(time_table[h][m]));
-  if (DEBUG)Serial.println("after p_pattern");
   for(uint16_t i=0;;i++) {
-    if (DEBUG)Serial.println("before pvalue");
     uint8_t pvalue = pgm_read_byte(&(p_pattern[i]));
-    if (DEBUG)Serial.println(pvalue);
     if(pvalue==0xFF){
       break;    
     }
     //Read word Pointer
     uint16_t* p_word = (uint16_t*) pgm_read_dword(&(word_table[pvalue]));
     uint16_t leds_start= pgm_read_word(&(p_word[0]));
-    if (DEBUG)Serial.println("leds_start=" + String(leds_start));
     uint16_t leds_length= pgm_read_word(&(p_word[1]));
-    if (DEBUG)Serial.println("leds_length=" + String(leds_length));
     for(uint16_t j=0;j<leds_length;j++){
       //Map Led Index  
-      if (DEBUG)Serial.println("checkpoint");
-      if (DEBUG)Serial.println("ledindexmap=" + String(ledindexmap[leds_start+j]));
-      if (DEBUG)Serial.println(pgm_read_word(&(ledindexmap[leds_start+j])));
-      
       leds[pgm_read_word(&(ledindexmap[leds_start+j]))] = CRGB(hexColor);  
     }
   }
