@@ -44,7 +44,7 @@ long unixTime;
 uint8_t h;
 uint8_t m;
 
-int lightLevel, muchLight = 0, noLight = 1023;
+int light, lightLevel, muchLight = 0, noLight = 1023;
 
 //min and max Werte für Helligkeit
 int ledOff = 0, ledMax = 255;
@@ -117,16 +117,19 @@ void dimm() {
   if (DEBUG)Serial.println("dimm");
   //lese Fotodiode
   lightLevel = analogRead(LIGHT_SENSOR_PIN);
+  if (DEBUG)Serial.println("lightlevel " + lightLevel);
 
   //Passe den Input Range auf einen Output Range an
   //TODO: Welches ist der Output Range?
-  lightLevel = map(lightLevel, muchLight, noLight, ledOff, userMax || ledMax);
+  light = map(lightLevel, muchLight, noLight, ledOff, userMax || ledMax);
+  if (DEBUG)Serial.println("light " + light);
   //und stelle sicher, dass die Werte nicht ausserhalb der erlaubten sind
-  lightLevel = constrain(lightLevel, ledOff, ledMax);
+  light = constrain(lightLevel, ledOff, ledMax);
+  if (DEBUG)Serial.println("light " + light);
 
   //Dann setze den neuen Wert
-  FastLED.setBrightness(lightLevel);
-  if (DEBUG)Serial.println("dimm done " + lightLevel);
+  FastLED.setBrightness(light);
+  if (DEBUG)Serial.println("dimm done " + light);
 }
 
 /*--------------------------------------------------
@@ -381,54 +384,40 @@ void handleRoot() {
   ltoa(ss, ssc, 10);
 
   snprintf(temp, 2048,
-           "<html>\
-  <head>\
-    <meta http-equiv='refresh' content='30'/>\
-    <meta charset='utf-8'>\
-    <meta name='viewport' content='width=device-width, initial-scale=1, shrink-to-fit=no'>\
-    <link rel='stylesheet' href='https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css'>\
-    <title>WordClock</title>\
-  </head>\
-  <body>\
-    <div class='container'>\
-      <div class='jumbotron d-flex align-items-center'>\
-        <h1>%s</h1><br />\
-        <br />\
-        <h2>Es ist %d Uhr %d</h2>\
-      </div>\
-      <form action='/color'>\
-        <div class='form-inline'>\
-          <input class='form-control' type='color' name='pick' value='%s'>\
-          <input class='btn btn-success' type='submit' value='Set' />\
-        </div>\
-      </form>\
-      <div class='btn-group' role='group'>\
-        <form action='/restart'><input class='btn btn-warning' type='submit' value='Restart'/></form>\
-        <form action='/reset'><input class='btn btn-danger' type='submit' value='Reset'/></form>\
-        <form action='/update'><input class='btn btn-danger' type='submit' value='Update'/></form>\
-      </div>\
-      <div class='btn-group' role='group'>\
-        <form action='/on'><input class='btn btn-success' type='submit' value='On'/></form>\
-        <form action='/off'><input class='btn btn-danger' type='submit' value='Off'/></form>\
-        <form action='/dimm'><input class='btn btn-danger' type='submit' value='Dimm'/></form>\
-        <form action='/loadTime'><input class='btn btn-danger' type='submit' value='loadTime'/></form>\
-      </div>\
-      <div class='btn-group' role='group'>\
-        <form action='/test'><input class='btn btn-danger' type='submit' value='Test'/></form>\
-        <form action='/test2'><input class='btn btn-danger' type='submit' value='Test2'/></form>\
-      </div>\
-      <p class='lead'>Heap %s</p>\
-      <p class='lead'>FreeSketchSpace %s</p>\
-      <p class='lead'>SketchSize %s</p>\
-    </div>\
-    <footer class='page-footer font-small blue pt-4'>\
-      <div class='footer-copyright text-center py-3'>© 2019 Copyright \
-        <a href='https://www.nafcom.ch'> nafcom.ch</a>\
-      </div>\
-    </footer>\
-  </body>\
-</html>",
-           "Word Clock", h, m, rgbColor, fhc, fssc, ssc
+"<html><head>\
+ <meta charset='utf-8'/><meta http-equiv='refresh' content='30'/>\
+ <link rel='stylesheet' href='https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css'>\
+ <title>WordClock</title>\
+ <script>function conf(path){if(window.confirm('Sure?')){load(path)}}\
+         function load(path){window.location.href=path}</script>\
+</head><body>\
+ <div class='container'>\
+  <div class='jumbotron d-flex align-items-center'>\
+   <h1>Es ist %d Uhr %d</h1>\
+  </div>\
+  <form action='/color'><div class='form-inline'>\
+    <input class='form-control' type='color' name='pick' value='%s'>\
+    <input class='btn btn-success' type='submit' value='Set' />\
+   </div></form>\
+  <p><button class='btn btn-success confirm' onclick=load('/restart');>Restart</button>\
+  <button class='btn btn-warning confirm' onclick=conf('/reset');>Reset</button>\
+  <button class='btn btn-danger confirm' onclick=conf('/update');>Update</button></p>\
+  <p><button class='btn btn-success confirm' onclick=load('/on');>On</button>\
+  <button class='btn btn-success confirm' onclick=load('/off');>Off</button>\
+  <button class='btn btn-success confirm' onclick=load('/dimm');>Dimm</button>\
+  <button class='btn btn-success confirm' onclick=load('/loadTime');>Load Time</button></p>\
+  <p><button class='btn btn-success confirm' onclick=conf('/test');>Test</button>\
+  <button class='btn btn-success confirm' onclick=load('/test2');>Test2</button></p>\
+  <p class='lead'>Heap %s</p>\
+  <p class='lead'>FreeSketchSpace %s</p>\
+  <p class='lead'>SketchSize %s</p>\
+  <p class='lead'>Light LDR(%d)/LED(%d)</p>\
+ </div>\
+ <footer class='page-footer font-small blue pt-4'>\
+  <div class='footer-copyright text-center py-3'>© 2019 Copyright <a href='https://www.nafcom.ch'> nafcom.ch</a></div>\
+ </footer>\
+</body></html>",
+           h, m, rgbColor, fhc, fssc, ssc, lightLevel, light
           );
   server.send(200, "text/html", temp);
   if (DEBUG)Serial.println("handleRoot done");
