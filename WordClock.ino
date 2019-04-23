@@ -16,7 +16,7 @@
 #define LED_PIN D1 //5 //TODO correct Pin please
 #define LIGHT_SENSOR_PIN 0 //TODO correct Pin please
 #define NUM_LEDS 110
-#define LED_TYPE WS2812B
+#define LED_TYPE WS2812
 #define COLOR_ORDER GRB
 
 const char* host = "wordclock-ota";
@@ -54,8 +54,8 @@ int userMax = 180; //TODO: konfigurierbar über WebGUI?
 /*--------------------------------------------------*/
 void setup() {
   delay(3000); //power up safety delay
-  Serial.begin(115200);
   if (DEBUG)Serial.println("setup");
+  Serial.begin(115200);
 
   FastLED.addLeds<LED_TYPE, LED_PIN, COLOR_ORDER>(leds, NUM_LEDS);
 
@@ -117,19 +117,16 @@ void dimm() {
   if (DEBUG)Serial.println("dimm");
   //lese Fotodiode
   lightLevel = analogRead(LIGHT_SENSOR_PIN);
-  if(lightLevel != NULL && lightLevel > 20){
-    //Passe den Input Range auf einen Output Range an
-    //TODO: Welches ist der Output Range?
-    light = map(lightLevel, muchLight, noLight, ledOff, userMax || ledMax);
-    //und stelle sicher, dass die Werte nicht ausserhalb der erlaubten sind
-    light = constrain(lightLevel, ledOff, ledMax);
-    //Dann setze den neuen Wert
-    FastLED.setBrightness(light);
-    if (DEBUG)Serial.println("dimm done " + String(light));
-  } else {
-    FastLED.setBrightness(userMax);
-    if (DEBUG)Serial.println("dimm could not read lightLevel");
-  }
+
+  //Passe den Input Range auf einen Output Range an
+  //TODO: Welches ist der Output Range?
+  light = map(lightLevel, muchLight, noLight, ledOff, userMax || ledMax);
+  //und stelle sicher, dass die Werte nicht ausserhalb der erlaubten sind
+  light = constrain(lightLevel, ledOff, ledMax);
+
+  //Dann setze den neuen Wert
+  FastLED.setBrightness(light);
+  if (DEBUG)Serial.println("dimm done " + light);
 }
 
 /*--------------------------------------------------
@@ -137,16 +134,16 @@ Setze die Farbe der LEDs
 */
 void setColor() {
   if (DEBUG)Serial.println("setColor");
-//  FastLED.setBrightness(ledOff);
+  FastLED.setBrightness(ledOff);
   //Just for fun - lasse alle LEDs einmal in der neuen Farbe faden
   //Experimentell, keine Ahnung ob das tut :D
-//  for (int i = 0; i <= NUM_LEDS; i++) {
-//    leds[i] = hexColor;
-//    leds[i].fadeLightBy(255);
-//    leds[i].fadeToBlackBy(0);
-//    delay(200);
-//  }
-//  FastLED.setBrightness(light || userMax);
+  for (int i = 0; i <= NUM_LEDS; i++) {
+    leds[i] = hexColor;
+    leds[i].fadeLightBy(255);
+    leds[i].fadeToBlackBy(0);
+    delay(200);
+  }
+  FastLED.setBrightness(lightLevel);
   if (DEBUG)Serial.println("setColor done");
 }
 
@@ -236,7 +233,6 @@ void handleColor() {
   Serial.println(pick);
   saveColor(pick);
   loadColor();
-  loadTime();
   
   server.sendHeader("Location", "/");
   server.send(302, "text/plane", "");
@@ -386,29 +382,36 @@ void handleRoot() {
 
   snprintf(temp, 2048,
 "<html><head>\
- <meta charset='utf-8'/><meta http-equiv='refresh' content='60'/>\
+ <meta http-equiv='refresh' content='30'/>\
  <link rel='stylesheet' href='https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css'>\
  <title>WordClock</title>\
- <script>function conf(path){if(window.confirm('Sure?')){load(path)}}\
-         function load(path){window.location.href=path}</script>\
+ <script>$(function(){$('.confirm').click(function(){return window.confirm('Are you sure?');});});</script>\
 </head><body>\
  <div class='container'>\
   <div class='jumbotron d-flex align-items-center'>\
    <h1>Es ist %d Uhr %d</h1>\
   </div>\
-  <form action='/color'><div class='form-inline'>\
+  <form action='/color'>\
+   <div class='form-inline'>\
     <input class='form-control' type='color' name='pick' value='%s'>\
     <input class='btn btn-success' type='submit' value='Set' />\
-   </div></form>\
-  <p><button class='btn btn-success confirm' onclick=load('/restart');>Restart</button>\
-  <button class='btn btn-warning confirm' onclick=conf('/reset');>Reset</button>\
-  <button class='btn btn-danger confirm' onclick=conf('/update');>Update</button></p>\
-  <p><button class='btn btn-success confirm' onclick=load('/on');>On</button>\
-  <button class='btn btn-success confirm' onclick=load('/off');>Off</button>\
-  <button class='btn btn-success confirm' onclick=load('/dimm');>Dimm</button>\
-  <button class='btn btn-success confirm' onclick=load('/loadTime');>Load Time</button></p>\
-  <p><button class='btn btn-success confirm' onclick=conf('/test');>Test</button>\
-  <button class='btn btn-success confirm' onclick=load('/test2');>Test2</button></p>\
+   </div>\
+  </form>\
+  <div class='btn-group' role='group'>\
+   <form action='/restart'><input class='btn btn-warning' type='submit' value='Restart'/></form>\
+   <form action='/reset'><input class='btn btn-danger' type='submit' value='Reset'/></form>\
+   <form action='/update'><input class='btn btn-danger' type='submit' value='Update'/></form>\
+  </div><br />\
+  <div class='btn-group' role='group'>\
+   <form action='/on'><input class='btn btn-success' 4type='submit' value='On'/></form>\
+   <form action='/off'><input class='btn btn-danger' type='submit' value='Off'/></form>\
+   <form action='/dimm'><input class='btn btn-danger' type='submit' value='Dimm'/></form>\
+   <form action='/loadTime'><input class='btn btn-danger' type='submit' value='loadTime'/></form>\
+  </div><br />\
+  <div class='btn-group' role='group'>\
+   <form action='/test'><input class='btn btn-danger' type='submit' value='Test'/></form>\
+   <form action='/test2'><input class='confirm btn btn-danger' type='submit' value='Test2'/></form>\
+  </div>\
   <p class='lead'>Heap %s</p>\
   <p class='lead'>FreeSketchSpace %s</p>\
   <p class='lead'>SketchSize %s</p>\
