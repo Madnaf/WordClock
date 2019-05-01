@@ -353,7 +353,7 @@ const uint8_t* const time_table[24][60] PROGMEM = {
    {pattern_79, pattern_79, pattern_79, pattern_79, pattern_79, pattern_48, pattern_48, pattern_48, pattern_48, pattern_48, pattern_119, pattern_119, pattern_119, pattern_119, pattern_119, pattern_102, pattern_102, pattern_102, pattern_102, pattern_102, pattern_68, pattern_68, pattern_68, pattern_68, pattern_68, pattern_74, pattern_74, pattern_74, pattern_74, pattern_74, pattern_50, pattern_50, pattern_50, pattern_50, pattern_50, pattern_128, pattern_128, pattern_128, pattern_128, pattern_128, pattern_121, pattern_121, pattern_121, pattern_121, pattern_121, pattern_91, pattern_91, pattern_91, pattern_91, pattern_91, pattern_115, pattern_115, pattern_115, pattern_115, pattern_115, pattern_42, pattern_42, pattern_42, pattern_42, pattern_42}, 
    {pattern_67, pattern_67, pattern_67, pattern_67, pattern_67, pattern_61, pattern_61, pattern_61, pattern_61, pattern_61, pattern_106, pattern_106, pattern_106, pattern_106, pattern_106, pattern_110, pattern_110, pattern_110, pattern_110, pattern_110, pattern_76, pattern_76, pattern_76, pattern_76, pattern_76, pattern_74, pattern_74, pattern_74, pattern_74, pattern_74, pattern_50, pattern_50, pattern_50, pattern_50, pattern_50, pattern_128, pattern_128, pattern_128, pattern_128, pattern_128, pattern_121, pattern_121, pattern_121, pattern_121, pattern_121, pattern_91, pattern_91, pattern_91, pattern_91, pattern_91, pattern_115, pattern_115, pattern_115, pattern_115, pattern_115, pattern_42, pattern_42, pattern_42, pattern_42, pattern_42}
 };
-//siehe hauptprogramm #define NUM_LEDS 110 
+
 const uint16_t ledindexmap[NUM_LEDS] PROGMEM = {   
    0 /* E */,    1 /* S */,    2 /* X */,    3 /* I */,    4 /* S */,    5 /* T */,    6 /* M */,    7 /* H */,    8 /* A */,    9 /* L */,   10 /* B */,    
   11 /* P */,   12 /* U */,   13 /* N */,   14 /* K */,   15 /* T */,   16 /* J */,   17 /* B */,   18 /* F */,   19 /* Ü */,   20 /* N */,   21 /* F */,    
@@ -366,8 +366,18 @@ const uint16_t ledindexmap[NUM_LEDS] PROGMEM = {
   88 /* Z */,   89 /* W */,   90 /* Ö */,   91 /* L */,   92 /* F */,   93 /* S */,   94 /* I */,   95 /* E */,   96 /* B */,   97 /* E */,   98 /* N */,    
   99 /* S */,  100 /* D */,  101 /* R */,  102 /* E */,  103 /* I */,  104 /* P */,  105 /* H */,  106 /* U */,  107 /* H */,  108 /* R */,  109 /* F */
 };
-    
-//boolean ledstate[NUM_LEDS];
+const uint16_t ledindexmapreverse[NUM_LEDS] PROGMEM = {   
+  10 /* E */,    9 /* S */,    8 /* X */,    7 /* I */,    6 /* S */,    5 /* T */,    4 /* M */,    3 /* H */,    2 /* A */,    1 /* L */,    0 /* B */,    
+  21 /* P */,   20 /* U */,   19 /* N */,   18 /* K */,   17 /* T */,   16 /* J */,   15 /* B */,   14 /* F */,   13 /* Ü */,   12 /* N */,   11 /* F */,    
+  32 /* Z */,   31 /* E */,   30 /* H */,   29 /* N */,   28 /* V */,   27 /* I */,   26 /* E */,   25 /* R */,   24 /* T */,   23 /* E */,   22 /* L */,    
+  43 /* Z */,   42 /* W */,   41 /* A */,   40 /* N */,   39 /* Z */,   38 /* I */,   37 /* G */,   36 /* D */,   35 /* V */,   34 /* O */,   33 /* R */,    
+  54 /* Q */,   53 /* N */,   52 /* A */,   51 /* C */,   50 /* H */,   49 /* C */,   48 /* B */,   47 /* H */,   46 /* A */,   45 /* L */,   44 /* B */,    
+  65 /* Z */,   64 /* E */,   63 /* H */,   62 /* N */,   61 /* Y */,   60 /* S */,   59 /* E */,   58 /* C */,   57 /* H */,   56 /* S */,   55 /* Q */,    
+  76 /* V */,   75 /* I */,   74 /* E */,   73 /* R */,   72 /* E */,   71 /* I */,   70 /* N */,   69 /* Z */,   68 /* W */,   67 /* E */,   66 /* I */,    
+  87 /* H */,   86 /* A */,   85 /* C */,   84 /* H */,   83 /* T */,   82 /* E */,   81 /* L */,   80 /* F */,   79 /* Ü */,   78 /* N */,   77 /* F */,    
+  98 /* Z */,   97 /* W */,   96 /* Ö */,   95 /* L */,   94 /* F */,   93 /* S */,   92 /* I */,   91 /* E */,   90 /* B */,   89 /* E */,   88 /* N */,    
+ 109 /* S */,  108 /* D */,  107 /* R */,  106 /* E */,  105 /* I */,  104 /* P */,  103 /* H */,  102 /* U */,  101 /* H */,  100 /* R */,   99 /* F */
+};
 
 void calcLedState(uint8_t h, uint8_t m){
   if (DEBUG)Serial.println("calcLedState");
@@ -392,7 +402,8 @@ void calcLedState(uint8_t h, uint8_t m){
     uint16_t leds_length= pgm_read_word(&(p_word[1]));
     for(uint16_t j=0;j<leds_length;j++){
       //Map Led Index  
-      leds[pgm_read_word(&(ledindexmap[leds_start+j]))] = CRGB(hexColor);  
+      //leds[pgm_read_word(&(ledindexmap[leds_start+j]))] = CRGB(hexColor);  
+      leds[pgm_read_word(&(ledindexmapreverse[leds_start+j]))] = CRGB(hexColor);  
     }
   }
   FastLED.show();
