@@ -14,8 +14,8 @@
 #include <ESP8266HTTPUpdateServer.h>
 
 #define DEBUG true
-#define LED_PIN D1 //5 //TODO correct Pin please
-#define LIGHT_SENSOR_PIN 0 //TODO correct Pin please
+#define LED_PIN D1
+#define LIGHT_SENSOR_PIN A0
 #define NUM_LEDS 110
 #define LED_TYPE WS2812B
 #define COLOR_ORDER GRB
