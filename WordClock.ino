@@ -29,12 +29,7 @@ ESP8266WebServer server(80);
 ESP8266HTTPUpdateServer httpUpdater;
 WiFiManager wifiManager;
 WiFiUDP ntpUDP;
-EasyNTPClient timeClient(ntpUDP, "europe.pool.ntp.org", 3600); //TODO: Konfigurierbar machen?
-
-//Call loadTime every 60 seconds
-TimedAction loadTimeAction = TimedAction(60000, loadTime);
-//Call dimm every 10 Seconds
-TimedAction dimmAction = TimedAction(10000, dimm);
+EasyNTPClient timeClient(ntpUDP, "europe.pool.ntp.org", 7200); //TODO: Konfigurierbar machen?
 
 char rgbColor[20];
 uint32_t hexColor;
@@ -88,18 +83,18 @@ void setup() {
   httpUpdater.setup(&server, update_path, update_username, update_password);
 
   server.begin();
-  Serial.println("HTTP server started"); 
+  Serial.println("HTTP server started");
 
   setupSuccess();
-  if (DEBUG)Serial.println("setup done");  
+  if (DEBUG)Serial.println("setup done");
 }
 
 /*--------------------------------------------------
-Blinke bei erfolgreichem Boot Vorgang
+  Blinke bei erfolgreichem Boot Vorgang
 */
-void setupSuccess(){
+void setupSuccess() {
   FastLED.setBrightness(100);
-  for(int i = 0; i<NUM_LEDS; i++) {
+  for (int i = 0; i < NUM_LEDS; i++) {
     leds[i] = CRGB::Red;
     FastLED.show();
     delay(20);
@@ -111,14 +106,14 @@ void setupSuccess(){
 }
 
 /*--------------------------------------------------
-Setze die Helligkeit der LEDs basierend auf Phototransistor
+  Setze die Helligkeit der LEDs basierend auf Phototransistor
 */
 void dimm() {
   if (DEBUG)Serial.println("dimm");
   //lese Fotodiode
   lightLevel = analogRead(LIGHT_SENSOR_PIN);
 
-  if(lightLevel != NULL && lightLevel > 20){
+  if (lightLevel != NULL && lightLevel > 20) {
     //Passe den Input Range auf einen Output Range an
     //TODO: Welches ist der Output Range?
     light = map(lightLevel, muchLight, noLight, ledOff, userMax || ledMax);
@@ -130,33 +125,36 @@ void dimm() {
   } else {
     FastLED.setBrightness(userMax);
     if (DEBUG)Serial.println("dimm could not read lightLevel");
-  }}
+  }
+}
 
 /*--------------------------------------------------
-Setze die Farbe der LEDs
+  Setze die Farbe der LEDs
 */
 void setColor() {
   if (DEBUG)Serial.println("setColor");
-//  FastLED.setBrightness(ledOff);
+  //  FastLED.setBrightness(ledOff);
   //Just for fun - lasse alle LEDs einmal in der neuen Farbe faden
   //Experimentell, keine Ahnung ob das tut :D
-//  for (int i = 0; i <= NUM_LEDS; i++) {
-//    leds[i] = hexColor;
-//    leds[i].fadeLightBy(255);
-//    leds[i].fadeToBlackBy(0);
-//    delay(200);
-//  }
-//  FastLED.setBrightness(light || userMax);
+  //  for (int i = 0; i <= NUM_LEDS; i++) {
+  //    leds[i] = hexColor;
+  //    leds[i].fadeLightBy(255);
+  //    leds[i].fadeToBlackBy(0);
+  //    delay(200);
+  //  }
+  //  FastLED.setBrightness(light || userMax);
   if (DEBUG)Serial.println("setColor done");
 }
 
 /*--------------------------------------------------
-Lade die Zeit und speichere Stunden und Minuten in
-globalen Variablen ab.
+  Lade die Zeit und speichere Stunden und Minuten in
+  globalen Variablen ab.
 */
 void loadTime() {
   if (DEBUG)Serial.println("loadTime");
   unixTime = timeClient.getUnixTime();
+  //TODO: Automatische Sommer-/Winterzeit
+  //timeClient.setTimeOffset();
   h = hour(unixTime); //TODO: 0-23 oder 0-11?
   m = minute(unixTime);
   setTime(unixTime);
@@ -165,8 +163,8 @@ void loadTime() {
 }
 
 /*--------------------------------------------------
-Lese die Farbe aus dem Speicher (SPIFFS) und speichere
-sie in globaler Variable ab.
+  Lese die Farbe aus dem Speicher (SPIFFS) und speichere
+  sie in globaler Variable ab.
 */
 void loadColor() {
   if (DEBUG)Serial.println("loadColor");
@@ -190,18 +188,18 @@ void loadColor() {
   // use configFile.readString instead.
   configFile.readBytes(buf.get(), size);
 
-  StaticJsonBuffer<200> jsonBuffer;
-  JsonObject& json = jsonBuffer.parseObject(buf.get());
+  StaticJsonDocument<200> jsonDoc;
+  DeserializationError jsonError = deserializeJson(jsonDoc, buf.get());
 
-  if (!json.success()) {
+  if (jsonError) {
     Serial.println("Failed to parse config file");
     return;
   }
-  String temp = json["rgbColor"];
+  String temp = jsonDoc["rgbColor"];
 
   temp.toCharArray(rgbColor, 20);
   //übersetze den String vom Colorpicker in hex Wert
-  hexColor = (uint32_t)strtol(rgbColor+1, NULL, 16);
+  hexColor = (uint32_t)strtol(rgbColor + 1, NULL, 16);
 
   Serial.println("Color loaded");
   Serial.println(rgbColor);
@@ -209,26 +207,25 @@ void loadColor() {
 }
 
 /*--------------------------------------------------
-Speichere die Farbe im Speicher (SPIFFS) als
-String gemäss Colorpicker
+  Speichere die Farbe im Speicher (SPIFFS) als
+  String gemäss Colorpicker
 */
 void saveColor(String rgbColor) {
   if (DEBUG)Serial.println("saveColor" + rgbColor);
-  StaticJsonBuffer<200> jsonBuffer;
-  JsonObject& json = jsonBuffer.createObject();
-  json["rgbColor"] = rgbColor;
+  StaticJsonDocument<200> jsonDoc;
+  jsonDoc["rgbColor"] = rgbColor;
 
   File configFile = SPIFFS.open("/config.json", "w");
   if (!configFile) {
     Serial.println("Failed to open config file for writing");
     return;
   }
-  json.printTo(configFile);
+  serializeJson(jsonDoc, configFile);
   if (DEBUG)Serial.println("saveColor done");
 }
 
 /*--------------------------------------------------
-Handle für die Farbwahl Route des Webservers
+  Handle für die Farbwahl Route des Webservers
 */
 void handleColor() {
   if (DEBUG)Serial.println("handleColor");
@@ -237,15 +234,15 @@ void handleColor() {
   saveColor(pick);
   loadColor();
   loadTime();
-  
+
   server.sendHeader("Location", "/");
   server.send(302, "text/plane", "");
-  
+
   if (DEBUG)Serial.println("handleColor done");
 }
 
 /*--------------------------------------------------
-Handle für die Restart Route des Webservers
+  Handle für die Restart Route des Webservers
 */
 void handleRestart() {
   if (DEBUG)Serial.println("handleRestart");
@@ -255,7 +252,7 @@ void handleRestart() {
 }
 
 /*--------------------------------------------------
-Handle für die Reset Route des Webservers
+  Handle für die Reset Route des Webservers
 */
 void handleReset() {
   if (DEBUG)Serial.println("handleReset");
@@ -267,7 +264,7 @@ void handleReset() {
 }
 
 /*--------------------------------------------------
-Handle für die Update Route des Webservers
+  Handle für die Update Route des Webservers
 */
 void handleUpdate() {
   if (DEBUG)Serial.println("handleUpdate");
@@ -277,7 +274,7 @@ void handleUpdate() {
 }
 
 /*--------------------------------------------------
-Handle für die On Route des Webservers
+  Handle für die On Route des Webservers
 */
 void handleOn() {
   if (DEBUG)Serial.println("handleOn");
@@ -290,7 +287,7 @@ void handleOn() {
 }
 
 /*--------------------------------------------------
-Handle für die Off Route des Webservers
+  Handle für die Off Route des Webservers
 */
 void handleOff() {
   if (DEBUG)Serial.println("handleOff");
@@ -302,7 +299,7 @@ void handleOff() {
 }
 
 /*--------------------------------------------------
-Handle für die Dimm Route des Webservers
+  Handle für die Dimm Route des Webservers
 */
 void handleDimm() {
   if (DEBUG)Serial.println("handleDimm");
@@ -313,7 +310,7 @@ void handleDimm() {
 }
 
 /*--------------------------------------------------
-Handle für die loadTime Route des Webservers
+  Handle für die loadTime Route des Webservers
 */
 void handleLoadTime() {
   if (DEBUG)Serial.println("handleLoadTime");
@@ -324,7 +321,7 @@ void handleLoadTime() {
 }
 
 /*--------------------------------------------------
-Handle für die Test Route des Webservers
+  Handle für die Test Route des Webservers
 */
 void handleTest() {
   if (DEBUG)Serial.println("handleTest");
@@ -344,21 +341,21 @@ void handleTest() {
 }
 
 /*--------------------------------------------------
-Handle für die Test Route 2 des Webservers
+  Handle für die Test Route 2 des Webservers
 */
 void handleTest2() {
   if (DEBUG)Serial.println("handleTest2");
 
-  for(int i = 0; i<NUM_LEDS; i++) {
+  for (int i = 0; i < NUM_LEDS; i++) {
     leds[i] = CRGB::Red;
   }
   FastLED.show();
   delay(3000);
-  for(int i = 0; i<NUM_LEDS; i++) {
+  for (int i = 0; i < NUM_LEDS; i++) {
     leds[i] = CRGB::Black;
   }
   FastLED.show();
-  
+
   server.sendHeader("Location", "/");
   server.send(302, "text/plane", "");
 
@@ -366,7 +363,7 @@ void handleTest2() {
 }
 
 /*--------------------------------------------------
-Handle für die Root Route des Webservers
+  Handle für die Root Route des Webservers
 */
 void handleRoot() {
   if (DEBUG)Serial.println("handleRoot");
@@ -385,7 +382,7 @@ void handleRoot() {
   ltoa(ss, ssc, 10);
 
   snprintf(temp, 2048,
-"<html><head>\
+           "<html><head>\
  <meta charset='utf-8'/><meta http-equiv='refresh' content='60'/>\
  <link rel='stylesheet' href='https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css'>\
  <title>WordClock</title>\
@@ -425,8 +422,8 @@ void handleRoot() {
 }
 
 /*--------------------------------------------------
-Handle für nicht definierte Route
-TODO: Was genau will ich hier?
+  Handle für nicht definierte Route
+  TODO: Was genau will ich hier?
 */
 void handleNotFound() {
   if (DEBUG)Serial.println("handleNotFound");
@@ -444,6 +441,12 @@ void handleNotFound() {
   server.send(404, "text/plain", message);
   if (DEBUG)Serial.println("handleNotFound done");
 }
+
+/*--------------------------------------------------*/
+//Call loadTime every 60 seconds
+TimedAction loadTimeAction = TimedAction(60000, loadTime);
+//Call dimm every 10 Seconds
+TimedAction dimmAction = TimedAction(10000, dimm);
 
 /*--------------------------------------------------*/
 void loop() {
