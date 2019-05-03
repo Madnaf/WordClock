@@ -415,7 +415,7 @@ void calcLedState(uint8_t h, uint8_t m){
     uint16_t leds_length= pgm_read_word(&(p_word[1]));
     for(uint16_t j=0;j<leds_length;j++){
       //Map Led Index  
-      //leds[pgm_read_word(&(ledindexmap[leds_start+j]))] = CRGB(hexColor);                    
+      leds[pgm_read_word(&(ledindexmap[leds_start+j]))] = CRGB(hexColor);                    
     }
   }
   FastLED.show();
