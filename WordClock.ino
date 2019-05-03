@@ -4,6 +4,7 @@
 #include <Time.h>
 #include <TimeLib.h>
 #include <TimedAction.h>
+#include <Timezone.h>
 #include <ESP8266WiFi.h>
 #include <DNSServer.h>
 #include <ESP8266WebServer.h>
@@ -29,15 +30,20 @@ ESP8266WebServer server(80);
 ESP8266HTTPUpdateServer httpUpdater;
 WiFiManager wifiManager;
 WiFiUDP ntpUDP;
-EasyNTPClient timeClient(ntpUDP, "europe.pool.ntp.org", 7200); //TODO: Konfigurierbar machen?
+EasyNTPClient timeClient(ntpUDP, "europe.pool.ntp.org"); //TODO: Konfigurierbar machen?
 
 char rgbColor[20];
 uint32_t hexColor;
 //TODO: globale Variable für maximale Helligkeit und konfigurierbar?
 
-long unixTime;
+time_t localTime;
 uint8_t h;
 uint8_t m;
+
+// Central European Time (Frankfurt, Paris)
+TimeChangeRule CEST = {"CEST", Last, Sun, Mar, 2, 120};     // Central European Summer Time
+TimeChangeRule CET = {"CET ", Last, Sun, Oct, 3, 60};       // Central European Standard Time
+Timezone CE(CEST, CET);
 
 int light, lightLevel, muchLight = 0, noLight = 1023;
 
@@ -152,12 +158,11 @@ void setColor() {
 */
 void loadTime() {
   if (DEBUG)Serial.println("loadTime");
-  unixTime = timeClient.getUnixTime();
-  //TODO: Automatische Sommer-/Winterzeit
-  //timeClient.setTimeOffset();
-  h = hour(unixTime); //TODO: 0-23 oder 0-11?
-  m = minute(unixTime);
-  setTime(unixTime);
+  TimeChangeRule *tcr;
+  time_t localTime = CE.toLocal(timeClient.getUnixTime(), &tcr);
+  h = hour(localTime); //TODO: 0-23 oder 0-11?
+  m = minute(localTime);
+  setTime(localTime);
   calcLedState(h, m); //siehe Unterprogramm WordClockLedController
   if (DEBUG)Serial.println("loadTime done");
 }
