@@ -24,6 +24,8 @@ const char* host = "wordclock-ota";
 const char* update_path = "/firmware";
 const char* update_username = "admin";
 const char* update_password = "admin";
+const char* filename = "/config.json";
+const size_t capacity = JSON_OBJECT_SIZE(2) + 50; // https://arduinojson.org/v6/assistant/
 
 CRGB leds[NUM_LEDS];
 ESP8266WebServer server(80);
@@ -32,25 +34,39 @@ WiFiManager wifiManager;
 WiFiUDP ntpUDP;
 EasyNTPClient timeClient(ntpUDP, "europe.pool.ntp.org"); //TODO: Konfigurierbar machen?
 
-char rgbColor[20];
-uint32_t hexColor;
-//TODO: globale Variable für maximale Helligkeit und konfigurierbar?
+/*--------------------------------------------------
+  Configuration
+*/
+struct Config
+{
+  char hexColor[20];
+  int maxBrightness;
+};
+Config config;
 
+/*--------------------------------------------------
+  Color
+*/
+uint32_t decColor;
+
+/*--------------------------------------------------
+  Brightness
+*/
+int light, lightLevel;
+// Min/Max LDR
+int lightLow = 0, lightHigh = 1024; 
+// Min/Max Helligkeit
+int ledMin = 0, ledMax = 255;
+
+/*--------------------------------------------------
+  Time
+*/
 time_t localTime;
 uint8_t h;
 uint8_t m;
-
-// Central European Time (Frankfurt, Paris)
-TimeChangeRule CEST = {"CEST", Last, Sun, Mar, 2, 120};     // Central European Summer Time
-TimeChangeRule CET = {"CET ", Last, Sun, Oct, 3, 60};       // Central European Standard Time
+TimeChangeRule CEST = {"CEST", Last, Sun, Mar, 2, 120}; // Central European Summer Time
+TimeChangeRule CET = {"CET ", Last, Sun, Oct, 3, 60};   // Central European Standard Time
 Timezone CE(CEST, CET);
-
-int light, lightLevel, muchLight = 0, noLight = 1023;
-
-//min and max Werte für Helligkeit
-int ledOff = 0, ledMax = 255;
-//max Wert gemäss Usersetting
-int userMax = 180; //TODO: konfigurierbar über WebGUI?
 
 /*--------------------------------------------------*/
 void setup() {
@@ -69,14 +85,16 @@ void setup() {
     if (DEBUG)Serial.println("SPIFFS successfully mounted");
   }
 
-  loadColor();
+  // Config File laden
+  loadConfig();
 
-  //Registriere Webserver Routen
+  // Registriere Webserver Routen
   server.on("/", handleRoot);
   server.on("/restart", handleRestart);
   server.on("/reset", handleReset);
   server.on("/update", handleUpdate);
   server.on("/color", handleColor);
+  server.on("/brightness", handleBrightness);
   server.on("/on", handleOn);
   server.on("/off", handleOff);
   server.on("/dimm", handleDimm);
@@ -85,7 +103,7 @@ void setup() {
   server.on("/test2", handleTest2);
   server.onNotFound(handleNotFound);
 
-  //Setup OTA
+  // Setup OTA
   httpUpdater.setup(&server, update_path, update_username, update_password);
 
   server.begin();
@@ -116,20 +134,20 @@ void setupSuccess() {
 */
 void dimm() {
   if (DEBUG)Serial.println("dimm");
-  //lese Fotodiode
+  // Lese LDR
   lightLevel = analogRead(LIGHT_SENSOR_PIN);
-
-  if (lightLevel != NULL && lightLevel > 20) {
-    //Passe den Input Range auf einen Output Range an
-    //TODO: Welches ist der Output Range?
-    light = map(lightLevel, muchLight, noLight, ledOff, userMax || ledMax);
-    //und stelle sicher, dass die Werte nicht ausserhalb der erlaubten sind
-    light = constrain(lightLevel, ledOff, ledMax);
-    //Dann setze den neuen Wert
+  if (DEBUG)Serial.println(lightLevel);
+  
+  if (lightLevel != NULL) {
+    // Mappe LDR Range auf LED Range
+    light = map(lightLevel, lightLow, lightHigh, config.maxBrightness, ledMin);
+    // Erlaubter LED Range einschränken
+    light = constrain(lightLevel, ledMin, ledMax);
+    // Neuen Helligkeits-Wert setzen
     FastLED.setBrightness(light);
     if (DEBUG)Serial.println("dimm done " + String(light));
   } else {
-    FastLED.setBrightness(userMax);
+    FastLED.setBrightness(config.maxBrightness);
     if (DEBUG)Serial.println("dimm could not read lightLevel");
   }
 }
@@ -143,7 +161,7 @@ void setColor() {
   //Just for fun - lasse alle LEDs einmal in der neuen Farbe faden
   //Experimentell, keine Ahnung ob das tut :D
   //  for (int i = 0; i <= NUM_LEDS; i++) {
-  //    leds[i] = hexColor;
+  //    leds[i] = decColor;
   //    leds[i].fadeLightBy(255);
   //    leds[i].fadeToBlackBy(0);
   //    delay(200);
@@ -171,62 +189,68 @@ void loadTime() {
   Lese die Farbe aus dem Speicher (SPIFFS) und speichere
   sie in globaler Variable ab.
 */
-void loadColor() {
-  if (DEBUG)Serial.println("loadColor");
-  File configFile = SPIFFS.open("/config.json", "r");
+void loadConfig() {
+  if (DEBUG)Serial.println("loadConfig");
+  File configFile = SPIFFS.open(filename, "r");
   if (!configFile) {
     Serial.println("Failed to open config file");
     return;
   }
 
-  size_t size = configFile.size();
-  if (size > 1024) {
-    Serial.println("Config file size is too large");
-    return;
-  }
-
-  // Allocate a buffer to store contents of the file.
-  std::unique_ptr<char[]> buf(new char[size]);
-
-  // We don't use String here because ArduinoJson library requires the input
-  // buffer to be mutable. If you don't use ArduinoJson, you may as well
-  // use configFile.readString instead.
-  configFile.readBytes(buf.get(), size);
-
-  StaticJsonDocument<200> jsonDoc;
-  DeserializationError jsonError = deserializeJson(jsonDoc, buf.get());
+  // Create JSON document
+  StaticJsonDocument<capacity> jsonDoc;
+  // Deserialize file to JSON document
+  DeserializationError jsonError = deserializeJson(jsonDoc, configFile);
 
   if (jsonError) {
     Serial.println("Failed to parse config file");
     return;
   }
-  String temp = jsonDoc["rgbColor"];
 
-  temp.toCharArray(rgbColor, 20);
-  //übersetze den String vom Colorpicker in hex Wert
-  hexColor = (uint32_t)strtol(rgbColor + 1, NULL, 16);
+  // Color
+  String hexColor = jsonDoc["color"];
+  hexColor.toCharArray(config.hexColor, 20);                       // Hex-Wert
+  decColor = (uint32_t)strtol(config.hexColor + 1, NULL, 16);  // Dezimal-Wert
+  Serial.println("Color loaded " + String(config.hexColor));
 
-  Serial.println("Color loaded");
-  Serial.println(rgbColor);
-  if (DEBUG)Serial.println("loadColor done");
+  // Brightness
+  config.maxBrightness = jsonDoc["brightness"];
+  Serial.println("Brightness loaded " + String(config.maxBrightness));
+
+  configFile.close();
+  if (DEBUG)Serial.println("loadConfig done");
 }
 
 /*--------------------------------------------------
   Speichere die Farbe im Speicher (SPIFFS) als
   String gemäss Colorpicker
 */
-void saveColor(String rgbColor) {
-  if (DEBUG)Serial.println("saveColor" + rgbColor);
-  StaticJsonDocument<200> jsonDoc;
-  jsonDoc["rgbColor"] = rgbColor;
-
-  File configFile = SPIFFS.open("/config.json", "w");
+void saveConfig() {
+  if (DEBUG)Serial.println("saveConfig");
+  File configFile = SPIFFS.open(filename, "w");
   if (!configFile) {
     Serial.println("Failed to open config file for writing");
     return;
   }
-  serializeJson(jsonDoc, configFile);
-  if (DEBUG)Serial.println("saveColor done");
+
+  // Create JSON document
+  StaticJsonDocument<capacity> jsonDoc;
+
+  // Color
+  jsonDoc["color"] = config.hexColor;
+  Serial.println("Color saved " + String(config.hexColor));
+
+  // Brightness
+  jsonDoc["brightness"] = config.maxBrightness;
+  Serial.println("Brightness saved " + String(config.maxBrightness));
+
+  // Serialize JSON to file
+  if (serializeJson(jsonDoc, configFile) == 0) {
+    Serial.println("Failed to write to config file");
+  }
+
+  configFile.close();
+  if (DEBUG)Serial.println("saveConfig done");
 }
 
 /*--------------------------------------------------
@@ -234,16 +258,36 @@ void saveColor(String rgbColor) {
 */
 void handleColor() {
   if (DEBUG)Serial.println("handleColor");
-  String pick = server.arg("pick");
-  Serial.println(pick);
-  saveColor(pick);
-  loadColor();
+  String valColor = server.arg("setColor");
+  Serial.println(valColor);
+  valColor.toCharArray(config.hexColor, 20);
+  saveConfig();
+  loadConfig();
   loadTime();
 
   server.sendHeader("Location", "/");
   server.send(302, "text/plane", "");
 
   if (DEBUG)Serial.println("handleColor done");
+}
+
+/*--------------------------------------------------
+  Handle für die Helligkeit Route des Webservers
+*/
+void handleBrightness() {
+  if (DEBUG)Serial.println("handleBrightness");
+  String valBrightness = server.arg("setBrightness");
+  Serial.println(valBrightness);
+  config.maxBrightness = valBrightness.toInt();
+  saveConfig();
+  loadConfig();
+  dimm();
+  loadTime();
+
+  server.sendHeader("Location", "/");
+  server.send(302, "text/plane", "");
+
+  if (DEBUG)Serial.println("handleBrightness done");
 }
 
 /*--------------------------------------------------
@@ -286,7 +330,7 @@ void handleOn() {
   server.sendHeader("Location", "/");
   server.send(302, "text/plane", "");
   FastLED.setBrightness(30);
-  fill_solid(leds, NUM_LEDS, CRGB(hexColor));
+  fill_solid(leds, NUM_LEDS, CRGB(decColor));
   FastLED.show();
   if (DEBUG)Serial.println("handleOn done");
 }
@@ -335,7 +379,7 @@ void handleTest() {
   server.send(302, "text/plane", "");
 
   FastLED.setBrightness(30);
-  fill_solid(leds, NUM_LEDS, CRGB(hexColor));
+  fill_solid(leds, NUM_LEDS, CRGB(decColor));
   FastLED.show();
 
   delay(3000);
@@ -372,10 +416,10 @@ void handleTest2() {
 */
 void handleRoot() {
   if (DEBUG)Serial.println("handleRoot");
-  char temp[2048];
+  char html[2048];
 
-  long  fh = ESP.getFreeHeap();
-  char  fhc[20];
+  long fh = ESP.getFreeHeap();
+  char fhc[20];
   ltoa(fh, fhc, 10);
 
   long fss = ESP.getFreeSketchSpace();
@@ -386,22 +430,24 @@ void handleRoot() {
   char ssc[20];
   ltoa(ss, ssc, 10);
 
-  snprintf(temp, 2048,
-           "<html><head>\
+  snprintf(html, 2048,"\
+<html><head>\
  <meta charset='utf-8'/><meta http-equiv='refresh' content='60'/>\
  <link rel='stylesheet' href='https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css'>\
  <title>WordClock</title>\
  <script>function conf(path){if(window.confirm('Sure?')){load(path)}}\
-         function load(path){window.location.href=path}</script>\
+ function load(path){window.location.href=path}</script>\
 </head><body>\
  <div class='container'>\
-  <div class='jumbotron d-flex align-items-center'>\
-   <h1>Es ist %d Uhr %d</h1>\
-  </div>\
+ <div class='jumbotron d-flex align-items-center'><h1>Es ist %d Uhr %d</h1></div>\
   <form action='/color'><div class='form-inline'>\
-    <input class='form-control' type='color' name='pick' value='%s'>\
-    <input class='btn btn-success' type='submit' value='Set' />\
-   </div></form>\
+   <input class='form-control' style='width: 80px;' type='color' name='setColor' value='%s'>\
+   <input class='btn btn-success' type='submit' value='Set Color'/>\
+  </div></form>\
+  <form action='/brightness'><div class='form-inline'>\
+   <input class='form-control' style='width: 80px;' type='number' name='setBrightness' min='0' max='255' value='%d'>\
+   <input class='btn btn-success' type='submit' value='Set Max Brightness'/>\
+  </div></form>\
   <p><button class='btn btn-success confirm' onclick=load('/restart');>Restart</button>\
   <button class='btn btn-warning confirm' onclick=conf('/reset');>Reset</button>\
   <button class='btn btn-danger confirm' onclick=conf('/update');>Update</button></p>\
@@ -417,12 +463,12 @@ void handleRoot() {
   <p class='lead'>Light LDR(%d)/LED(%d)</p>\
  </div>\
  <footer class='page-footer font-small blue pt-4'>\
-  <div class='footer-copyright text-center py-3'>© 2019 Copyright <a href='https://www.nafcom.ch'> nafcom.ch</a></div>\
+  <div class='footer-copyright text-center py-3'>© 2019 Copyright <a href='https://www.nafcom.ch'>nafcom.ch</a></div>\
  </footer>\
-</body></html>",
-           h, m, rgbColor, fhc, fssc, ssc, lightLevel, light
-          );
-  server.send(200, "text/html", temp);
+</body></html>\
+  ", h, m, config.hexColor, config.maxBrightness, fhc, fssc, ssc, lightLevel, light);
+
+  server.send(200, "text/html", html);
   if (DEBUG)Serial.println("handleRoot done");
 }
 
@@ -448,9 +494,9 @@ void handleNotFound() {
 }
 
 /*--------------------------------------------------*/
-//Call loadTime every 60 seconds
+// Call loadTime every 60 seconds
 TimedAction loadTimeAction = TimedAction(60000, loadTime);
-//Call dimm every 10 Seconds
+// Call dimm every 10 Seconds
 TimedAction dimmAction = TimedAction(10000, dimm);
 
 /*--------------------------------------------------*/
