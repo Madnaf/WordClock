@@ -12,6 +12,7 @@
 #include <WiFiUdp.h>
 #include <EasyNTPClient.h>
 #include <ESP8266HTTPUpdateServer.h>
+#include <RemoteDebug.h>
 
 #define DEBUG true
 #define LED_PIN D1
@@ -25,7 +26,7 @@ const char* update_path = "/firmware";
 const char* update_username = "admin";
 const char* update_password = "admin";
 const char* filename = "/config.json";
-const size_t capacity = JSON_OBJECT_SIZE(2) + 50; // https://arduinojson.org/v6/assistant/
+const size_t capacity = JSON_OBJECT_SIZE(2) + 100; // https://arduinojson.org/v6/assistant/
 
 CRGB leds[NUM_LEDS];
 ESP8266WebServer server(80);
@@ -33,6 +34,7 @@ ESP8266HTTPUpdateServer httpUpdater;
 WiFiManager wifiManager;
 WiFiUDP ntpUDP;
 EasyNTPClient timeClient(ntpUDP, "europe.pool.ntp.org"); //TODO: Konfigurierbar machen?
+RemoteDebug Debug;
 
 /*--------------------------------------------------
   Configuration
@@ -40,7 +42,7 @@ EasyNTPClient timeClient(ntpUDP, "europe.pool.ntp.org"); //TODO: Konfigurierbar 
 struct Config
 {
   char hexColor[20];
-  int maxBrightness;
+  int minBrightness, maxBrightness;
 };
 Config config;
 
@@ -72,17 +74,19 @@ Timezone CE(CEST, CET);
 void setup() {
   delay(3000); //power up safety delay
   Serial.begin(115200);
-  if (DEBUG)Serial.println("setup");
+  if (DEBUG)Debug.println("setup");
 
   FastLED.addLeds<LED_TYPE, LED_PIN, COLOR_ORDER>(leds, NUM_LEDS);
 
   wifiManager.autoConnect("WordClockAP");
 
+  Debug.begin("192.168.1.16");
+
   if (!SPIFFS.begin()) {
-    Serial.println("Failed to mount file system");
+    Debug.println("Failed to mount file system");
     return;
   } else {
-    if (DEBUG)Serial.println("SPIFFS successfully mounted");
+    if (DEBUG)Debug.println("SPIFFS successfully mounted");
   }
 
   // Config File laden
@@ -107,10 +111,10 @@ void setup() {
   httpUpdater.setup(&server, update_path, update_username, update_password);
 
   server.begin();
-  Serial.println("HTTP server started");
+  Debug.println("HTTP server started");
 
   setupSuccess();
-  if (DEBUG)Serial.println("setup done");
+  if (DEBUG)Debug.println("setup done");
 }
 
 /*--------------------------------------------------
@@ -133,22 +137,20 @@ void setupSuccess() {
   Setze die Helligkeit der LEDs basierend auf Phototransistor
 */
 void dimm() {
-  if (DEBUG)Serial.println("dimm");
+  if (DEBUG)Debug.println("dimm");
   // Lese LDR
   lightLevel = analogRead(LIGHT_SENSOR_PIN);
-  if (DEBUG)Serial.println(lightLevel);
+  if (DEBUG)Debug.println(lightLevel);
   
   if (lightLevel != NULL) {
     // Mappe LDR Range auf LED Range
-    light = map(lightLevel, lightLow, lightHigh, config.maxBrightness, ledMin);
-    // Erlaubter LED Range einschränken
-    light = constrain(lightLevel, ledMin, ledMax);
+    light = map(lightLevel, lightLow, lightHigh, config.minBrightness, config.maxBrightness);
     // Neuen Helligkeits-Wert setzen
     FastLED.setBrightness(light);
-    if (DEBUG)Serial.println("dimm done " + String(light));
+    if (DEBUG)Debug.println("dimm done " + String(light));
   } else {
     FastLED.setBrightness(config.maxBrightness);
-    if (DEBUG)Serial.println("dimm could not read lightLevel");
+    if (DEBUG)Debug.println("dimm could not read lightLevel");
   }
 }
 
@@ -156,7 +158,7 @@ void dimm() {
   Setze die Farbe der LEDs
 */
 void setColor() {
-  if (DEBUG)Serial.println("setColor");
+  if (DEBUG)Debug.println("setColor");
   //  FastLED.setBrightness(ledOff);
   //Just for fun - lasse alle LEDs einmal in der neuen Farbe faden
   //Experimentell, keine Ahnung ob das tut :D
@@ -167,7 +169,7 @@ void setColor() {
   //    delay(200);
   //  }
   //  FastLED.setBrightness(light || userMax);
-  if (DEBUG)Serial.println("setColor done");
+  if (DEBUG)Debug.println("setColor done");
 }
 
 /*--------------------------------------------------
@@ -175,14 +177,14 @@ void setColor() {
   globalen Variablen ab.
 */
 void loadTime() {
-  if (DEBUG)Serial.println("loadTime");
+  if (DEBUG)Debug.println("loadTime");
   TimeChangeRule *tcr;
   time_t localTime = CE.toLocal(timeClient.getUnixTime(), &tcr);
   h = hour(localTime); //TODO: 0-23 oder 0-11?
   m = minute(localTime);
   setTime(localTime);
   calcLedState(h, m); //siehe Unterprogramm WordClockLedController
-  if (DEBUG)Serial.println("loadTime done");
+  if (DEBUG)Debug.println("loadTime done");
 }
 
 /*--------------------------------------------------
@@ -190,10 +192,10 @@ void loadTime() {
   sie in globaler Variable ab.
 */
 void loadConfig() {
-  if (DEBUG)Serial.println("loadConfig");
+  if (DEBUG)Debug.println("loadConfig");
   File configFile = SPIFFS.open(filename, "r");
   if (!configFile) {
-    Serial.println("Failed to open config file");
+    Debug.println("Failed to open config file");
     return;
   }
 
@@ -203,22 +205,25 @@ void loadConfig() {
   DeserializationError jsonError = deserializeJson(jsonDoc, configFile);
 
   if (jsonError) {
-    Serial.println("Failed to parse config file");
+    Debug.println("Failed to parse config file");
+    Debug.println(jsonError.c_str());
     return;
   }
 
   // Color
   String hexColor = jsonDoc["color"];
-  hexColor.toCharArray(config.hexColor, 20);                       // Hex-Wert
+  hexColor.toCharArray(config.hexColor, 20);                   // Hex-Wert
   decColor = (uint32_t)strtol(config.hexColor + 1, NULL, 16);  // Dezimal-Wert
-  Serial.println("Color loaded " + String(config.hexColor));
+  Debug.println("Color loaded " + String(config.hexColor));
 
   // Brightness
-  config.maxBrightness = jsonDoc["brightness"];
-  Serial.println("Brightness loaded " + String(config.maxBrightness));
+  config.minBrightness = jsonDoc["minBrightness"];
+  Debug.println("minBrightness loaded " + String(config.minBrightness));
+  config.maxBrightness = jsonDoc["maxBrightness"];
+  Debug.println("maxBrightness loaded " + String(config.maxBrightness));
 
   configFile.close();
-  if (DEBUG)Serial.println("loadConfig done");
+  if (DEBUG)Debug.println("loadConfig done");
 }
 
 /*--------------------------------------------------
@@ -226,10 +231,10 @@ void loadConfig() {
   String gemäss Colorpicker
 */
 void saveConfig() {
-  if (DEBUG)Serial.println("saveConfig");
+  if (DEBUG)Debug.println("saveConfig");
   File configFile = SPIFFS.open(filename, "w");
   if (!configFile) {
-    Serial.println("Failed to open config file for writing");
+    Debug.println("Failed to open config file for writing");
     return;
   }
 
@@ -238,28 +243,30 @@ void saveConfig() {
 
   // Color
   jsonDoc["color"] = config.hexColor;
-  Serial.println("Color saved " + String(config.hexColor));
+  Debug.println("Color saved " + String(config.hexColor));
 
   // Brightness
-  jsonDoc["brightness"] = config.maxBrightness;
-  Serial.println("Brightness saved " + String(config.maxBrightness));
+  jsonDoc["minBrightness"] = config.minBrightness;
+  Debug.println("minBrightness saved " + String(config.minBrightness));
+  jsonDoc["maxBrightness"] = config.maxBrightness;
+  Debug.println("maxBrightness saved " + String(config.maxBrightness));
 
   // Serialize JSON to file
   if (serializeJson(jsonDoc, configFile) == 0) {
-    Serial.println("Failed to write to config file");
+    Debug.println("Failed to write to config file");
   }
 
   configFile.close();
-  if (DEBUG)Serial.println("saveConfig done");
+  if (DEBUG)Debug.println("saveConfig done");
 }
 
 /*--------------------------------------------------
   Handle für die Farbwahl Route des Webservers
 */
 void handleColor() {
-  if (DEBUG)Serial.println("handleColor");
+  if (DEBUG)Debug.println("handleColor");
   String valColor = server.arg("setColor");
-  Serial.println(valColor);
+  Debug.println(valColor);
   valColor.toCharArray(config.hexColor, 20);
   saveConfig();
   loadConfig();
@@ -268,17 +275,20 @@ void handleColor() {
   server.sendHeader("Location", "/");
   server.send(302, "text/plane", "");
 
-  if (DEBUG)Serial.println("handleColor done");
+  if (DEBUG)Debug.println("handleColor done");
 }
 
 /*--------------------------------------------------
   Handle für die Helligkeit Route des Webservers
 */
 void handleBrightness() {
-  if (DEBUG)Serial.println("handleBrightness");
-  String valBrightness = server.arg("setBrightness");
-  Serial.println(valBrightness);
-  config.maxBrightness = valBrightness.toInt();
+  if (DEBUG)Debug.println("handleBrightness");
+  String valMinBrightness = server.arg("setMinBrightness");
+  Debug.println(valMinBrightness);
+  config.minBrightness = valMinBrightness.toInt();
+  String valMaxBrightness = server.arg("setMaxBrightness");
+  Debug.println(valMaxBrightness);
+  config.maxBrightness = valMaxBrightness.toInt();
   saveConfig();
   loadConfig();
   dimm();
@@ -287,14 +297,14 @@ void handleBrightness() {
   server.sendHeader("Location", "/");
   server.send(302, "text/plane", "");
 
-  if (DEBUG)Serial.println("handleBrightness done");
+  if (DEBUG)Debug.println("handleBrightness done");
 }
 
 /*--------------------------------------------------
   Handle für die Restart Route des Webservers
 */
 void handleRestart() {
-  if (DEBUG)Serial.println("handleRestart");
+  if (DEBUG)Debug.println("handleRestart");
   server.send(200, "text/plain", "Restart initiated");
   delay(500);
   ESP.restart();
@@ -304,10 +314,11 @@ void handleRestart() {
   Handle für die Reset Route des Webservers
 */
 void handleReset() {
-  if (DEBUG)Serial.println("handleReset");
+  if (DEBUG)Debug.println("handleReset");
   server.send(200, "text/plain", "Reset initiated");
   delay(500);
   wifiManager.resetSettings();
+  SPIFFS.remove(filename);
   delay(2000);
   ESP.restart();
 }
@@ -316,64 +327,64 @@ void handleReset() {
   Handle für die Update Route des Webservers
 */
 void handleUpdate() {
-  if (DEBUG)Serial.println("handleUpdate");
+  if (DEBUG)Debug.println("handleUpdate");
   server.sendHeader("Location", update_path);
   server.send(302, "text/plane", "");
-  if (DEBUG)Serial.println("handleUpdate");
+  if (DEBUG)Debug.println("handleUpdate");
 }
 
 /*--------------------------------------------------
   Handle für die On Route des Webservers
 */
 void handleOn() {
-  if (DEBUG)Serial.println("handleOn");
+  if (DEBUG)Debug.println("handleOn");
   server.sendHeader("Location", "/");
   server.send(302, "text/plane", "");
   FastLED.setBrightness(30);
   fill_solid(leds, NUM_LEDS, CRGB(decColor));
   FastLED.show();
-  if (DEBUG)Serial.println("handleOn done");
+  if (DEBUG)Debug.println("handleOn done");
 }
 
 /*--------------------------------------------------
   Handle für die Off Route des Webservers
 */
 void handleOff() {
-  if (DEBUG)Serial.println("handleOff");
+  if (DEBUG)Debug.println("handleOff");
   server.sendHeader("Location", "/");
   server.send(302, "text/plane", "");
   fill_solid(leds, NUM_LEDS, CRGB::Black);
   FastLED.show();
-  if (DEBUG)Serial.println("handleOff done");
+  if (DEBUG)Debug.println("handleOff done");
 }
 
 /*--------------------------------------------------
   Handle für die Dimm Route des Webservers
 */
 void handleDimm() {
-  if (DEBUG)Serial.println("handleDimm");
+  if (DEBUG)Debug.println("handleDimm");
   server.sendHeader("Location", "/");
   server.send(302, "text/plane", "");
   dimm();
-  if (DEBUG)Serial.println("handleDimm done");
+  if (DEBUG)Debug.println("handleDimm done");
 }
 
 /*--------------------------------------------------
   Handle für die loadTime Route des Webservers
 */
 void handleLoadTime() {
-  if (DEBUG)Serial.println("handleLoadTime");
+  if (DEBUG)Debug.println("handleLoadTime");
   server.sendHeader("Location", "/");
   server.send(302, "text/plane", "");
   loadTime();
-  if (DEBUG)Serial.println("handleLoadTime done");
+  if (DEBUG)Debug.println("handleLoadTime done");
 }
 
 /*--------------------------------------------------
   Handle für die Test Route des Webservers
 */
 void handleTest() {
-  if (DEBUG)Serial.println("handleTest");
+  if (DEBUG)Debug.println("handleTest");
 
   server.sendHeader("Location", "/");
   server.send(302, "text/plane", "");
@@ -386,14 +397,14 @@ void handleTest() {
 
   fill_solid(leds, NUM_LEDS, CRGB::Black);
   FastLED.show();
-  if (DEBUG)Serial.println("handleTest done");
+  if (DEBUG)Debug.println("handleTest done");
 }
 
 /*--------------------------------------------------
   Handle für die Test Route 2 des Webservers
 */
 void handleTest2() {
-  if (DEBUG)Serial.println("handleTest2");
+  if (DEBUG)Debug.println("handleTest2");
 
   for (int i = 0; i < NUM_LEDS; i++) {
     leds[i] = CRGB::Red;
@@ -408,14 +419,14 @@ void handleTest2() {
   server.sendHeader("Location", "/");
   server.send(302, "text/plane", "");
 
-  if (DEBUG)Serial.println("handleTest2 done");
+  if (DEBUG)Debug.println("handleTest2 done");
 }
 
 /*--------------------------------------------------
   Handle für die Root Route des Webservers
 */
 void handleRoot() {
-  if (DEBUG)Serial.println("handleRoot");
+  if (DEBUG)Debug.println("handleRoot");
   char html[2048];
 
   long fh = ESP.getFreeHeap();
@@ -445,8 +456,9 @@ void handleRoot() {
    <input class='btn btn-success' type='submit' value='Set Color'/>\
   </div></form>\
   <form action='/brightness'><div class='form-inline'>\
-   <input class='form-control' style='width: 80px;' type='number' name='setBrightness' min='0' max='255' value='%d'>\
-   <input class='btn btn-success' type='submit' value='Set Max Brightness'/>\
+   <input class='form-control' style='width: 80px;' type='number' name='setMinBrightness' min='0' max='255' value='%d'>\
+   <input class='form-control' style='width: 80px;' type='number' name='setMaxBrightness' min='0' max='255' value='%d'>\
+   <input class='btn btn-success' type='submit' value='Set Min/Max Brightness'/>\
   </div></form>\
   <p><button class='btn btn-success confirm' onclick=load('/restart');>Restart</button>\
   <button class='btn btn-warning confirm' onclick=conf('/reset');>Reset</button>\
@@ -466,10 +478,10 @@ void handleRoot() {
   <div class='footer-copyright text-center py-3'>© 2019 Copyright <a href='https://www.nafcom.ch'>nafcom.ch</a></div>\
  </footer>\
 </body></html>\
-  ", h, m, config.hexColor, config.maxBrightness, fhc, fssc, ssc, lightLevel, light);
+  ", h, m, config.hexColor, config.minBrightness, config.maxBrightness, fhc, fssc, ssc, lightLevel, light);
 
   server.send(200, "text/html", html);
-  if (DEBUG)Serial.println("handleRoot done");
+  if (DEBUG)Debug.println("handleRoot done");
 }
 
 /*--------------------------------------------------
@@ -477,7 +489,7 @@ void handleRoot() {
   TODO: Was genau will ich hier?
 */
 void handleNotFound() {
-  if (DEBUG)Serial.println("handleNotFound");
+  if (DEBUG)Debug.println("handleNotFound");
   String message = "File Not Found\n\n";
   message += "URI: ";
   message += server.uri();
@@ -490,7 +502,7 @@ void handleNotFound() {
     message += " " + server.argName(i) + ": " + server.arg(i) + "\n";
   }
   server.send(404, "text/plain", message);
-  if (DEBUG)Serial.println("handleNotFound done");
+  if (DEBUG)Debug.println("handleNotFound done");
 }
 
 /*--------------------------------------------------*/
@@ -504,5 +516,6 @@ void loop() {
   loadTimeAction.check();
   dimmAction.check();
   server.handleClient();
+  Debug.handle();
   delay(200);
 }
