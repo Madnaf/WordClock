@@ -1,6 +1,6 @@
 //Text Matrix:
 //   ESQISTOHALB
-//   QPUNKTLZEHN
+//   PUNKTJBZEHN
 //   VIERTELFÜNF
 //   ZWANZIGMVOR
 //   UNACHCCHALB
@@ -17,7 +17,7 @@ const uint16_t word_0[] PROGMEM = { 0, 2 };
 //Word: "IST"
 const uint16_t word_1[] PROGMEM = { 3, 3 };
 //Word: "PUNKT"
-const uint16_t word_2[] PROGMEM = { 12, 5 };
+const uint16_t word_2[] PROGMEM = { 11, 5 };
 //Word: "FÜNF"
 const uint16_t word_3[] PROGMEM = { 29, 4 };
 //Word: "ZEHN"
@@ -382,7 +382,7 @@ const uint8_t* const time_table[24][60] PROGMEM = {
 #define NUM_LEDS 110
 const uint16_t ledindexmap[NUM_LEDS] PROGMEM = {
   10 /* E */,    9 /* S */,    8 /* Q */,    7 /* I */,    6 /* S */,    5 /* T */,    4 /* O */,    3 /* H */,    2 /* A */,    1 /* L */,    0 /* B */,
-  11 /* Q */,   12 /* P */,   13 /* U */,   14 /* N */,   15 /* K */,   16 /* T */,   17 /* L */,   18 /* Z */,   19 /* E */,   20 /* H */,   21 /* N */,
+  11 /* P */,   12 /* U */,   13 /* N */,   14 /* K */,   15 /* T */,   16 /* J */,   17 /* B */,   18 /* Z */,   19 /* E */,   20 /* H */,   21 /* N */,
   32 /* V */,   31 /* I */,   30 /* E */,   29 /* R */,   28 /* T */,   27 /* E */,   26 /* L */,   25 /* F */,   24 /* Ü */,   23 /* N */,   22 /* F */,
   33 /* Z */,   34 /* W */,   35 /* A */,   36 /* N */,   37 /* Z */,   38 /* I */,   39 /* G */,   40 /* M */,   41 /* V */,   42 /* O */,   43 /* R */,
   54 /* U */,   53 /* N */,   52 /* A */,   51 /* C */,   50 /* H */,   49 /* C */,   48 /* C */,   47 /* H */,   46 /* A */,   45 /* L */,   44 /* B */,
