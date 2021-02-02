@@ -182,9 +182,12 @@ void loadTime() {
   time_t localTime = CE.toLocal(timeClient.getUnixTime(), &tcr);
   h = hour(localTime); //TODO: 0-23 oder 0-11?
   m = minute(localTime);
-  setTime(localTime);
-  calcLedState(h, m); //siehe Unterprogramm WordClockLedController
-  if (DEBUG)Debug.println("loadTime done");
+  if ((h > 0) && (m > 0))
+  {
+    setTime(localTime);
+    calcLedState(h, m); //siehe Unterprogramm WordClockLedController
+    if (DEBUG)Debug.println("loadTime done");
+  }
 }
 
 /*--------------------------------------------------
