@@ -144,12 +144,18 @@ void dimm() {
   
   if (lightLevel != NULL) {
     // Mappe LDR Range auf LED Range
-    light = map(lightLevel, lightLow, lightHigh, config.minBrightness, config.maxBrightness);
+//    light = map(lightLevel, lightLow, lightHigh, config.minBrightness, config.maxBrightness);
     // Neuen Helligkeits-Wert setzen
-    FastLED.setBrightness(light);
+//    FastLED.setBrightness(light);
+
+    if (lightLevel < 10) {
+      FastLED.setBrightness(config.minBrightness);
+    } else {
+      FastLED.setBrightness(config.maxBrightness);
+    }
     if (DEBUG)Debug.println("dimm done " + String(light));
   } else {
-    FastLED.setBrightness(config.maxBrightness);
+    FastLED.setBrightness(config.minBrightness);
     if (DEBUG)Debug.println("dimm could not read lightLevel");
   }
 }
@@ -180,14 +186,23 @@ void loadTime() {
   if (DEBUG)Debug.println("loadTime");
   TimeChangeRule *tcr;
   time_t localTime = CE.toLocal(timeClient.getUnixTime(), &tcr);
-  h = hour(localTime); //TODO: 0-23 oder 0-11?
-  m = minute(localTime);
-  if ((h > 0) && (m > 0))
+  uint8_t tempH = hour(localTime);
+  uint8_t tempM = minute(localTime);
+  if ((tempH > 0) && (tempM > 0))
   {
     setTime(localTime);
   }
-  calcLedState(h, m); //siehe Unterprogramm WordClockLedController
+  // calcLedState(h, m); //siehe Unterprogramm WordClockLedController
   if (DEBUG)Debug.println("loadTime done");
+}
+
+/*
+  Recalc LED state
+*/
+void recalcLedState() {
+  h = hour();
+  m = minute();
+  calcLedState(h, m);
 }
 
 /*--------------------------------------------------
@@ -453,7 +468,7 @@ void handleRoot() {
  function load(path){window.location.href=path}</script>\
 </head><body>\
  <div class='container'>\
- <div class='jumbotron d-flex align-items-center'><h1>Es ist %d Uhr %d</h1></div>\
+ <div class='jumbotron d-flex align-items-center'><h1>Es ist %d Uhr %d (System Time %d:%d:%d)</h1></div>\
   <form action='/color'><div class='form-inline'>\
    <input class='form-control' style='width: 80px;' type='color' name='setColor' value='%s'>\
    <input class='btn btn-success' type='submit' value='Set Color'/>\
@@ -481,7 +496,7 @@ void handleRoot() {
   <div class='footer-copyright text-center py-3'>© 2019 Copyright <a href='https://www.nafcom.ch'>nafcom.ch</a></div>\
  </footer>\
 </body></html>\
-  ", h, m, config.hexColor, config.minBrightness, config.maxBrightness, fhc, fssc, ssc, lightLevel, light);
+  ", h, m, hour(), minute(), second(), config.hexColor, config.minBrightness, config.maxBrightness, fhc, fssc, ssc, lightLevel, light);
 
   server.send(200, "text/html", html);
   if (DEBUG)Debug.println("handleRoot done");
@@ -509,14 +524,17 @@ void handleNotFound() {
 }
 
 /*--------------------------------------------------*/
-// Call loadTime every 60 seconds
-TimedAction loadTimeAction = TimedAction(60000, loadTime);
+// Call loadTime every 5 minutes
+TimedAction loadTimeAction = TimedAction(300000, loadTime);
 // Call dimm every 10 Seconds
-TimedAction dimmAction = TimedAction(10000, dimm);
+TimedAction dimmAction = TimedAction(5000, dimm);
+// Call recalc every 5 seconds
+TimedAction recalcLedStateAction = TimedAction(5000, recalcLedState);
 
 /*--------------------------------------------------*/
 void loop() {
   loadTimeAction.check();
+  recalcLedStateAction.check();
   dimmAction.check();
   server.handleClient();
   Debug.handle();
