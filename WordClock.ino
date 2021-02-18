@@ -185,9 +185,9 @@ void loadTime() {
   if ((h > 0) && (m > 0))
   {
     setTime(localTime);
-    calcLedState(h, m); //siehe Unterprogramm WordClockLedController
-    if (DEBUG)Debug.println("loadTime done");
   }
+  calcLedState(h, m); //siehe Unterprogramm WordClockLedController
+  if (DEBUG)Debug.println("loadTime done");
 }
 
 /*--------------------------------------------------
