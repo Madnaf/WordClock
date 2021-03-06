@@ -14,7 +14,6 @@
 #include <ESP8266HTTPUpdateServer.h>
 #include <RemoteDebug.h>
 
-#define DEBUG true
 #define LED_PIN D1
 #define LIGHT_SENSOR_PIN A0
 #define NUM_LEDS 110
@@ -26,7 +25,7 @@ const char* update_path = "/firmware";
 const char* update_username = "admin";
 const char* update_password = "admin";
 const char* filename = "/config.json";
-const size_t capacity = JSON_OBJECT_SIZE(2) + 100; // https://arduinojson.org/v6/assistant/
+const size_t capacity = 256; // JSON_OBJECT_SIZE(8); // https://arduinojson.org/v6/assistant/
 
 CRGB leds[NUM_LEDS];
 ESP8266WebServer server(80);
@@ -42,7 +41,8 @@ RemoteDebug Debug;
 struct Config
 {
   char hexColor[20];
-  int minBrightness, maxBrightness;
+  int lowBrightness, mediumBrightness, highBrightness;
+  int lowBoundary, highBoundary;
 };
 Config config;
 
@@ -54,11 +54,8 @@ uint32_t decColor;
 /*--------------------------------------------------
   Brightness
 */
-int light, lightLevel;
-// Min/Max LDR
-int lightLow = 0, lightHigh = 1024; 
-// Min/Max Helligkeit
-int ledMin = 0, ledMax = 255;
+const int lightLevelSteps = 8;
+int lightLevels[lightLevelSteps];
 
 /*--------------------------------------------------
   Time
@@ -74,19 +71,18 @@ Timezone CE(CEST, CET);
 void setup() {
   delay(3000); //power up safety delay
   Serial.begin(115200);
-  if (DEBUG)Debug.println("setup");
 
   FastLED.addLeds<LED_TYPE, LED_PIN, COLOR_ORDER>(leds, NUM_LEDS);
 
   wifiManager.autoConnect("WordClockAP");
 
   Debug.begin("192.168.1.16");
-
+  
   if (!SPIFFS.begin()) {
     Debug.println("Failed to mount file system");
     return;
   } else {
-    if (DEBUG)Debug.println("SPIFFS successfully mounted");
+    Debug.println("SPIFFS successfully mounted");
   }
 
   // Config File laden
@@ -99,6 +95,7 @@ void setup() {
   server.on("/update", handleUpdate);
   server.on("/color", handleColor);
   server.on("/brightness", handleBrightness);
+  server.on("/boundaries", handleBoundaries);
   server.on("/on", handleOn);
   server.on("/off", handleOff);
   server.on("/dimm", handleDimm);
@@ -111,10 +108,7 @@ void setup() {
   httpUpdater.setup(&server, update_path, update_username, update_password);
 
   server.begin();
-  Debug.println("HTTP server started");
-
   setupSuccess();
-  if (DEBUG)Debug.println("setup done");
 }
 
 /*--------------------------------------------------
@@ -137,34 +131,38 @@ void setupSuccess() {
   Setze die Helligkeit der LEDs basierend auf Phototransistor
 */
 void dimm() {
-  if (DEBUG)Debug.println("dimm");
-  // Lese LDR
-  lightLevel = analogRead(LIGHT_SENSOR_PIN);
-  if (DEBUG)Debug.println(lightLevel);
-  
-  if (lightLevel != NULL) {
-    // Mappe LDR Range auf LED Range
-//    light = map(lightLevel, lightLow, lightHigh, config.minBrightness, config.maxBrightness);
-    // Neuen Helligkeits-Wert setzen
-//    FastLED.setBrightness(light);
-
-    if (lightLevel < 10) {
-      FastLED.setBrightness(config.minBrightness);
-    } else {
-      FastLED.setBrightness(config.maxBrightness);
-    }
-    if (DEBUG)Debug.println("dimm done " + String(light));
-  } else {
-    FastLED.setBrightness(config.minBrightness);
-    if (DEBUG)Debug.println("dimm could not read lightLevel");
+  // copy the value of the following step to the previous
+  for (int i = 0; i < lightLevelSteps - 1; i++ ) {
+    lightLevels[i] = lightLevels[i+1];
   }
+  // overwrite the last one with the sensor
+  lightLevels[lightLevelSteps - 1] = analogRead(LIGHT_SENSOR_PIN);
+
+  int lightSum = 0;
+  for (int i = 0; i< lightLevelSteps; i++)
+  {
+    lightSum += lightLevels[i];
+  }
+
+  int lightAverage = lightSum / lightLevelSteps;
+
+  int brightness = 0;
+  if (lightAverage < 10) {
+    brightness = config.lowBrightness;
+  } else if (lightAverage > 20) {
+    brightness = config.highBrightness;
+  } else {
+    brightness = config.mediumBrightness;
+  }
+  FastLED.setBrightness(brightness);
+  Debug.println("dimm brightness=" + String(brightness) + " lightAverage=" + String(lightAverage) + " lightSum=" + String(lightSum) + " currentLight=" + String(lightLevels[lightLevelSteps - 1]));
 }
 
 /*--------------------------------------------------
   Setze die Farbe der LEDs
 */
 void setColor() {
-  if (DEBUG)Debug.println("setColor");
+  Debug.println("setColor");
   //  FastLED.setBrightness(ledOff);
   //Just for fun - lasse alle LEDs einmal in der neuen Farbe faden
   //Experimentell, keine Ahnung ob das tut :D
@@ -175,7 +173,7 @@ void setColor() {
   //    delay(200);
   //  }
   //  FastLED.setBrightness(light || userMax);
-  if (DEBUG)Debug.println("setColor done");
+  Debug.println("setColor done");
 }
 
 /*--------------------------------------------------
@@ -183,7 +181,7 @@ void setColor() {
   globalen Variablen ab.
 */
 void loadTime() {
-  if (DEBUG)Debug.println("loadTime");
+  Debug.println("loadTime");
   TimeChangeRule *tcr;
   time_t localTime = CE.toLocal(timeClient.getUnixTime(), &tcr);
   uint8_t tempH = hour(localTime);
@@ -192,8 +190,6 @@ void loadTime() {
   {
     setTime(localTime);
   }
-  // calcLedState(h, m); //siehe Unterprogramm WordClockLedController
-  if (DEBUG)Debug.println("loadTime done");
 }
 
 /*
@@ -210,7 +206,6 @@ void recalcLedState() {
   sie in globaler Variable ab.
 */
 void loadConfig() {
-  if (DEBUG)Debug.println("loadConfig");
   File configFile = SPIFFS.open(filename, "r");
   if (!configFile) {
     Debug.println("Failed to open config file");
@@ -235,13 +230,20 @@ void loadConfig() {
   Debug.println("Color loaded " + String(config.hexColor));
 
   // Brightness
-  config.minBrightness = jsonDoc["minBrightness"];
-  Debug.println("minBrightness loaded " + String(config.minBrightness));
-  config.maxBrightness = jsonDoc["maxBrightness"];
-  Debug.println("maxBrightness loaded " + String(config.maxBrightness));
+  config.lowBrightness = jsonDoc["lowBr"];
+  Debug.println("lowBrightness loaded " + String(config.lowBrightness));
+  config.mediumBrightness = jsonDoc["medBr"];
+  Debug.println("mediumBrightness loaded " + String(config.mediumBrightness));
+  config.highBrightness = jsonDoc["highBr"];
+  Debug.println("highBrightness loaded " + String(config.highBrightness));
+
+  // Boundaries
+  config.lowBoundary = jsonDoc["lowBo"];
+  Debug.println("lowBoundary loaded " + String(config.lowBoundary));
+  config.highBoundary = jsonDoc["highBo"];
+  Debug.println("highBoundary loaded " + String(config.highBoundary));
 
   configFile.close();
-  if (DEBUG)Debug.println("loadConfig done");
 }
 
 /*--------------------------------------------------
@@ -249,7 +251,6 @@ void loadConfig() {
   String gemäss Colorpicker
 */
 void saveConfig() {
-  if (DEBUG)Debug.println("saveConfig");
   File configFile = SPIFFS.open(filename, "w");
   if (!configFile) {
     Debug.println("Failed to open config file for writing");
@@ -264,10 +265,18 @@ void saveConfig() {
   Debug.println("Color saved " + String(config.hexColor));
 
   // Brightness
-  jsonDoc["minBrightness"] = config.minBrightness;
-  Debug.println("minBrightness saved " + String(config.minBrightness));
-  jsonDoc["maxBrightness"] = config.maxBrightness;
-  Debug.println("maxBrightness saved " + String(config.maxBrightness));
+  jsonDoc["lowBr"] = config.lowBrightness;
+  Debug.println("lowBrightness saved " + String(config.lowBrightness));
+  jsonDoc["medBr"] = config.mediumBrightness;
+  Debug.println("mediumBrightness saved " + String(config.mediumBrightness));
+  jsonDoc["highBr"] = config.highBrightness;
+  Debug.println("highBrightness saved " + String(config.highBrightness));
+
+  // Boundaries
+  jsonDoc["lowBo"] = config.lowBoundary;
+  Debug.println("lowBoundary saved " + String(config.lowBoundary));
+  jsonDoc["highBo"] = config.highBoundary;
+  Debug.println("highBoundary saved " + String(config.highBoundary));
 
   // Serialize JSON to file
   if (serializeJson(jsonDoc, configFile) == 0) {
@@ -275,54 +284,56 @@ void saveConfig() {
   }
 
   configFile.close();
-  if (DEBUG)Debug.println("saveConfig done");
 }
 
 /*--------------------------------------------------
   Handle für die Farbwahl Route des Webservers
 */
 void handleColor() {
-  if (DEBUG)Debug.println("handleColor");
   String valColor = server.arg("setColor");
-  Debug.println(valColor);
   valColor.toCharArray(config.hexColor, 20);
   saveConfig();
   loadConfig();
-  loadTime();
 
   server.sendHeader("Location", "/");
   server.send(302, "text/plane", "");
-
-  if (DEBUG)Debug.println("handleColor done");
 }
 
 /*--------------------------------------------------
   Handle für die Helligkeit Route des Webservers
 */
 void handleBrightness() {
-  if (DEBUG)Debug.println("handleBrightness");
-  String valMinBrightness = server.arg("setMinBrightness");
-  Debug.println(valMinBrightness);
-  config.minBrightness = valMinBrightness.toInt();
-  String valMaxBrightness = server.arg("setMaxBrightness");
-  Debug.println(valMaxBrightness);
-  config.maxBrightness = valMaxBrightness.toInt();
+  config.lowBrightness = server.arg("setLowBrightness").toInt();
+  config.mediumBrightness = server.arg("setMediumBrightness").toInt();
+  config.highBrightness = server.arg("setHighBrightness").toInt();
+  
   saveConfig();
   loadConfig();
   dimm();
-  loadTime();
 
   server.sendHeader("Location", "/");
   server.send(302, "text/plane", "");
+}
 
-  if (DEBUG)Debug.println("handleBrightness done");
+/*--------------------------------------------------
+  Handle for upper and lower brightness boundaries
+*/
+void handleBoundaries() {
+  config.lowBoundary = server.arg("setLowBoundary").toInt();
+  config.highBoundary = server.arg("setHighBoundary").toInt();
+  
+  saveConfig();
+  loadConfig();
+  dimm();
+
+  server.sendHeader("Location", "/");
+  server.send(302, "text/plane", "");
 }
 
 /*--------------------------------------------------
   Handle für die Restart Route des Webservers
 */
 void handleRestart() {
-  if (DEBUG)Debug.println("handleRestart");
   server.send(200, "text/plain", "Restart initiated");
   delay(500);
   ESP.restart();
@@ -332,7 +343,6 @@ void handleRestart() {
   Handle für die Reset Route des Webservers
 */
 void handleReset() {
-  if (DEBUG)Debug.println("handleReset");
   server.send(200, "text/plain", "Reset initiated");
   delay(500);
   wifiManager.resetSettings();
@@ -345,65 +355,53 @@ void handleReset() {
   Handle für die Update Route des Webservers
 */
 void handleUpdate() {
-  if (DEBUG)Debug.println("handleUpdate");
   server.sendHeader("Location", update_path);
   server.send(302, "text/plane", "");
-  if (DEBUG)Debug.println("handleUpdate");
 }
 
 /*--------------------------------------------------
   Handle für die On Route des Webservers
 */
 void handleOn() {
-  if (DEBUG)Debug.println("handleOn");
   server.sendHeader("Location", "/");
   server.send(302, "text/plane", "");
   FastLED.setBrightness(30);
   fill_solid(leds, NUM_LEDS, CRGB(decColor));
   FastLED.show();
-  if (DEBUG)Debug.println("handleOn done");
 }
 
 /*--------------------------------------------------
   Handle für die Off Route des Webservers
 */
 void handleOff() {
-  if (DEBUG)Debug.println("handleOff");
   server.sendHeader("Location", "/");
   server.send(302, "text/plane", "");
   fill_solid(leds, NUM_LEDS, CRGB::Black);
   FastLED.show();
-  if (DEBUG)Debug.println("handleOff done");
 }
 
 /*--------------------------------------------------
   Handle für die Dimm Route des Webservers
 */
 void handleDimm() {
-  if (DEBUG)Debug.println("handleDimm");
   server.sendHeader("Location", "/");
   server.send(302, "text/plane", "");
   dimm();
-  if (DEBUG)Debug.println("handleDimm done");
 }
 
 /*--------------------------------------------------
   Handle für die loadTime Route des Webservers
 */
 void handleLoadTime() {
-  if (DEBUG)Debug.println("handleLoadTime");
   server.sendHeader("Location", "/");
   server.send(302, "text/plane", "");
   loadTime();
-  if (DEBUG)Debug.println("handleLoadTime done");
 }
 
 /*--------------------------------------------------
   Handle für die Test Route des Webservers
 */
 void handleTest() {
-  if (DEBUG)Debug.println("handleTest");
-
   server.sendHeader("Location", "/");
   server.send(302, "text/plane", "");
 
@@ -415,15 +413,12 @@ void handleTest() {
 
   fill_solid(leds, NUM_LEDS, CRGB::Black);
   FastLED.show();
-  if (DEBUG)Debug.println("handleTest done");
 }
 
 /*--------------------------------------------------
   Handle für die Test Route 2 des Webservers
 */
 void handleTest2() {
-  if (DEBUG)Debug.println("handleTest2");
-
   for (int i = 0; i < NUM_LEDS; i++) {
     leds[i] = CRGB::Red;
   }
@@ -436,15 +431,12 @@ void handleTest2() {
 
   server.sendHeader("Location", "/");
   server.send(302, "text/plane", "");
-
-  if (DEBUG)Debug.println("handleTest2 done");
 }
 
 /*--------------------------------------------------
   Handle für die Root Route des Webservers
 */
 void handleRoot() {
-  if (DEBUG)Debug.println("handleRoot");
   char html[2048];
 
   long fh = ESP.getFreeHeap();
@@ -474,32 +466,28 @@ void handleRoot() {
    <input class='btn btn-success' type='submit' value='Set Color'/>\
   </div></form>\
   <form action='/brightness'><div class='form-inline'>\
-   <input class='form-control' style='width: 80px;' type='number' name='setMinBrightness' min='0' max='255' value='%d'>\
-   <input class='form-control' style='width: 80px;' type='number' name='setMaxBrightness' min='0' max='255' value='%d'>\
-   <input class='btn btn-success' type='submit' value='Set Min/Max Brightness'/>\
+   <input class='form-control' style='width: 80px;' type='number' name='setLowBrightness' min='0' max='255' value='%d'>\
+   <input class='form-control' style='width: 80px;' type='number' name='setMediumBrightness' min='0' max='255' value='%d'>\
+   <input class='form-control' style='width: 80px;' type='number' name='setHighBrightness' min='0' max='255' value='%d'>\
+   <input class='btn btn-success' type='submit' value='Set Brightness'/>\
+  </div></form>\
+  <form action='/boundaries'><div class='form-inline'>\
+   <input class='form-control' style='width: 80px;' type='number' name='setLowBoundary' min='0' max='255' value='%d'>\
+   <input class='form-control' style='width: 80px;' type='number' name='setHighBoundary' min='0' max='255' value='%d'>\
+   <input class='btn btn-success' type='submit' value='Set Boundaries'/>\
   </div></form>\
   <p><button class='btn btn-success confirm' onclick=load('/restart');>Restart</button>\
   <button class='btn btn-warning confirm' onclick=conf('/reset');>Reset</button>\
   <button class='btn btn-danger confirm' onclick=conf('/update');>Update</button></p>\
-  <p><button class='btn btn-success confirm' onclick=load('/on');>On</button>\
-  <button class='btn btn-success confirm' onclick=load('/off');>Off</button>\
-  <button class='btn btn-success confirm' onclick=load('/dimm');>Dimm</button>\
-  <button class='btn btn-success confirm' onclick=load('/loadTime');>Load Time</button></p>\
-  <p><button class='btn btn-success confirm' onclick=conf('/test');>Test</button>\
-  <button class='btn btn-success confirm' onclick=load('/test2');>Test2</button></p>\
-  <p class='lead'>Heap %s</p>\
-  <p class='lead'>FreeSketchSpace %s</p>\
-  <p class='lead'>SketchSize %s</p>\
-  <p class='lead'>Light LDR(%d)/LED(%d)</p>\
+  <p><button class='btn btn-success confirm' onclick=load('/loadTime');>Load Time</button></p>\
  </div>\
  <footer class='page-footer font-small blue pt-4'>\
   <div class='footer-copyright text-center py-3'>© 2019 Copyright <a href='https://www.nafcom.ch'>nafcom.ch</a></div>\
  </footer>\
 </body></html>\
-  ", h, m, hour(), minute(), second(), config.hexColor, config.minBrightness, config.maxBrightness, fhc, fssc, ssc, lightLevel, light);
+  ", h, m, hour(), minute(), second(), config.hexColor, config.lowBrightness, config.mediumBrightness, config.highBrightness, config.lowBoundary, config.highBoundary);
 
   server.send(200, "text/html", html);
-  if (DEBUG)Debug.println("handleRoot done");
 }
 
 /*--------------------------------------------------
@@ -507,7 +495,6 @@ void handleRoot() {
   TODO: Was genau will ich hier?
 */
 void handleNotFound() {
-  if (DEBUG)Debug.println("handleNotFound");
   String message = "File Not Found\n\n";
   message += "URI: ";
   message += server.uri();
@@ -520,14 +507,13 @@ void handleNotFound() {
     message += " " + server.argName(i) + ": " + server.arg(i) + "\n";
   }
   server.send(404, "text/plain", message);
-  if (DEBUG)Debug.println("handleNotFound done");
 }
 
 /*--------------------------------------------------*/
 // Call loadTime every 5 minutes
 TimedAction loadTimeAction = TimedAction(300000, loadTime);
 // Call dimm every 10 Seconds
-TimedAction dimmAction = TimedAction(5000, dimm);
+TimedAction dimmAction = TimedAction(2000, dimm);
 // Call recalc every 5 seconds
 TimedAction recalcLedStateAction = TimedAction(5000, recalcLedState);
 

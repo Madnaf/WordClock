@@ -399,8 +399,6 @@ void calcLedState(uint8_t h, uint8_t m) {
   }
   h = h % 24;
   m = m % 60;
-  if (DEBUG)Serial.println("h=" + String(h));
-  if (DEBUG)Serial.println("m=" + String(m));
 
   //Read pattern Pointer
   uint8_t* p_pattern = (uint8_t*) pgm_read_dword(&(time_table[h][m]));
@@ -419,5 +417,4 @@ void calcLedState(uint8_t h, uint8_t m) {
     }
   }
   FastLED.show();
-  if (DEBUG)Serial.println("calcLedState done");
 }
