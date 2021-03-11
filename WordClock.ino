@@ -144,12 +144,13 @@ void dimm() {
     lightSum += lightLevels[i];
   }
 
+//round to 5?
   int lightAverage = lightSum / lightLevelSteps;
 
   int brightness = 0;
-  if (lightAverage < 10) {
+  if (lightAverage < config.lowBoundary) {
     brightness = config.lowBrightness;
-  } else if (lightAverage > 20) {
+  } else if (lightAverage > config.highBoundary) {
     brightness = config.highBrightness;
   } else {
     brightness = config.mediumBrightness;
